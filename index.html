@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — ExitPass</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* Login-specific entrance animations */
+    .login-form-card {
+      animation: slide-up 0.5s ease 0.1s both;
+    }
+
+    .login-left__logo {
+      animation: fade-in 0.6s ease both;
+    }
+
+    .login-feature-list li {
+      animation: slide-up 0.5s ease both;
+    }
+
+    .login-feature-list li:nth-child(1) {
+      animation-delay: 0.1s;
+    }
+
+    .login-feature-list li:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .login-feature-list li:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
+    .login-feature-list li:nth-child(4) {
+      animation-delay: 0.4s;
+    }
+
+    .login-version {
+      position: absolute;
+      bottom: 24px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+    }
+
+    .email-domain {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .role-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .role-chip {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="login-wrap">
+    <!-- LEFT: Form panel -->
+    <div class="login-left">
+      <div class="login-left__logo">
+        <div class="login-left__logo-icon">🔐</div>
+        <div>
+          <div class="login-left__brand">Exit<span>Pass</span></div>
+          <div class="login-left__tagline">Secure Exit Management</div>
+        </div>
+      </div>
+
+      <div class="login-form-card">
+        <div style="margin-bottom:28px;">
+          <div class="page-header__eyebrow">Access Portal</div>
+          <h2 style="font-size:28px;font-weight:800;font-family:var(--font-display);">Sign In</h2>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:6px;">Enter your employee ID to continue</p>
+        </div>
+
+        <div id="error-alert" class="alert alert--error hidden">
+          <span class="alert__icon">⚠</span>
+          <span id="error-msg">Invalid employee number or user not found.</span>
+        </div>
+
+        <form id="login-form">
+          <div class="form-group">
+            <label class="form-label" for="user_id">Employee Number</label>
+            <input type="text" id="user_id" class="form-input" placeholder="e.g. U001" autocomplete="username"
+              required />
+            <div class="form-hint">Use your assigned employee ID</div>
+          </div>
+
+          <button type="submit" class="btn btn--primary btn--full btn--lg" id="login-btn" style="margin-top:8px;">
+            Authenticate
+          </button>
+        </form>
+
+        <div class="divider">Role-based Access</div>
+        <div class="role-chips">
+          <span class="role-chip role--employee">Employee</span>
+          <span class="role-chip role--approver">Approver</span>
+          <span class="role-chip role--guard">Guard</span>
+          <span class="role-chip role--admin">Admin</span>
+        </div>
+      </div>
+
+      <div class="login-version">EXITPASS v2.0 · SECURE ACCESS SYSTEM</div>
+    </div>
+
+    <!-- RIGHT: Feature showcase -->
+    <div class="login-right">
+      <ul class="login-feature-list">
+        <li>
+          <div class="feature-icon">📋</div>
+          <div class="feature-text">
+            <h4>Digital Requests</h4>
+            <p>Submit exit passes online — no paper forms, no lost slips.</p>
+          </div>
+        </li>
+        <li>
+          <div class="feature-icon">✅</div>
+          <div class="feature-text">
+            <h4>Instant Approvals</h4>
+            <p>Managers approve or reject with one click from anywhere.</p>
+          </div>
+        </li>
+        <li>
+          <div class="feature-icon">📱</div>
+          <div class="feature-text">
+            <h4>QR Verification</h4>
+            <p>Guards scan the unique QR code at the gate — real-time status.</p>
+          </div>
+        </li>
+        <li>
+          <div class="feature-icon">📊</div>
+          <div class="feature-text">
+            <h4>Full Audit Trail</h4>
+            <p>Every action logged with timestamps and responsible parties.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    // Redirect if already logged in
+    const session = Auth.getSession();
+    if (session) Auth.redirectByRole(session.role);
+
+    // Handle login form
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const userId = document.getElementById("user_id").value.trim();
+      const btn = document.getElementById("login-btn");
+      const errDiv = document.getElementById("error-alert");
+      const errMsg = document.getElementById("error-msg");
+
+      UI.hide(errDiv);
+      UI.setButtonLoading(btn, true);
+
+      try {
+        const res = await API.loginUser(userId);
+        if (res.success) {
+          Auth.saveSession(res);
+          UI.toast(`Welcome back, ${res.name}!`, "success");
+          setTimeout(() => Auth.redirectByRole(res.role), 500);
+        } else {
+          errMsg.textContent = res.error || "User not found. Contact your administrator.";
+          UI.show(errDiv);
+          UI.setButtonLoading(btn, false);
+        }
+      } catch (err) {
+        errMsg.textContent = "Connection error. Please try again.";
+        UI.show(errDiv);
+        UI.setButtonLoading(btn, false);
+      }
+    });
+  </script>
+</body>
+
+</html>

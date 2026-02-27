@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Pass — ExitPass</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .verify-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .verify-logo-icon {
+      width: 36px; height: 36px;
+      background: var(--amber);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .verify-logo-text {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    .verify-logo-text span { color: var(--amber); }
+
+    /* Animated status pulse on icon */
+    .status-approved .verify-status-icon { animation: pulse-green 2s ease-in-out infinite; }
+    .status-rejected .verify-status-icon { animation: none; }
+    .status-loading  .verify-status-icon { animation: pulse-amber 1s ease-in-out infinite; }
+
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+      50%       { box-shadow: 0 0 0 12px rgba(34,197,94,0); }
+    }
+    @keyframes pulse-amber {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245,166,35,0.4); }
+      50%       { box-shadow: 0 0 0 12px rgba(245,166,35,0); }
+    }
+
+    .guard-confirm-section {
+      margin-top: 8px;
+    }
+
+    .pass-id-large {
+      font-family: var(--font-mono);
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--amber);
+      letter-spacing: 0.1em;
+      text-align: center;
+      margin: 4px 0 20px;
+    }
+  </style>
+</head>
+<body>
+<div class="verify-wrap">
+  <div style="width:100%;max-width:480px;">
+    <!-- Logo -->
+    <div class="verify-logo">
+      <div class="verify-logo-icon">🔐</div>
+      <div>
+        <div class="verify-logo-text">Exit<span>Pass</span></div>
+      </div>
+    </div>
+
+    <!-- Main Verify Card -->
+    <div class="verify-card fade-in" id="verify-card">
+
+      <!-- Status Header -->
+      <div class="verify-header status-loading" id="status-header">
+        <div class="verify-status-banner">
+          <div class="verify-status-icon" id="status-icon">⏳</div>
+          <div class="verify-status-text">
+            <h2 id="status-title">Verifying…</h2>
+            <p id="status-subtitle">Checking pass validity</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pass Details -->
+      <div class="verify-body" id="verify-body">
+        <div class="loading-overlay" id="body-loading">
+          <div class="spinner"></div>
+        </div>
+        <!-- Details injected here -->
+      </div>
+
+      <!-- Guard Actions -->
+      <div class="verify-actions hidden" id="verify-actions">
+        <div class="form-group guard-confirm-section">
+          <label class="form-label" for="guard-name">Guard Name / ID</label>
+          <input type="text" id="guard-name" class="form-input" placeholder="Enter your name or ID…" />
+        </div>
+        <button class="btn btn--success btn--full btn--lg" id="btn-exited" onclick="markMovement('EXITED')">
+          ✓ Mark as EXITED
+        </button>
+        <button class="btn btn--primary btn--full" id="btn-returned" onclick="markMovement('RETURNED')">
+          ↩ Mark as RETURNED
+        </button>
+        <p style="text-align:center;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">
+          ALL ACTIONS ARE LOGGED AND TIMESTAMPED
+        </p>
+      </div>
+
+    </div>
+
+    <p style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:16px;font-family:var(--font-mono);">
+      EXITPASS SECURE VERIFICATION PORTAL
+    </p>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script>
+  let currentPass = null;
+
+  function getPassIdFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("id");
+  }
+
+  function setStatus(type, icon, title, subtitle) {
+    const header = document.getElementById("status-header");
+    header.className = `verify-header status-${type}`;
+    document.getElementById("status-icon").textContent   = icon;
+    document.getElementById("status-title").textContent  = title;
+    document.getElementById("status-subtitle").textContent = subtitle;
+  }
+
+  function renderDetails(pass) {
+    const body = document.getElementById("verify-body");
+    body.innerHTML = `
+      <div class="pass-id-large">${pass.pass_id}</div>
+      <div class="detail-row">
+        <span class="detail-row__label">Employee</span>
+        <span class="detail-row__value">${pass.employee_name || "—"}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row__label">Department</span>
+        <span class="detail-row__value">${pass.department || "—"}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row__label">Reason</span>
+        <span class="detail-row__value">${pass.reason}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row__label">Exit From</span>
+        <span class="detail-row__value">${UI.formatDateTime(pass.exit_from)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row__label">Return By</span>
+        <span class="detail-row__value">${UI.formatDateTime(pass.exit_to)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row__label">Approval Status</span>
+        <span class="detail-row__value">${UI.statusBadge(pass.approval_status)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-row__label">Movement Status</span>
+        <span class="detail-row__value">${UI.statusBadge(pass.movement_status)}</span>
+      </div>
+      ${pass.approved_by ? `
+      <div class="detail-row">
+        <span class="detail-row__label">Approved By</span>
+        <span class="detail-row__value">${pass.approved_by}</span>
+      </div>` : ""}
+      ${pass.exit_time ? `
+      <div class="detail-row">
+        <span class="detail-row__label">Exited At</span>
+        <span class="detail-row__value detail-row__value--mono">${UI.formatDateTime(pass.exit_time)}</span>
+      </div>` : ""}
+      ${pass.return_time ? `
+      <div class="detail-row">
+        <span class="detail-row__label">Returned At</span>
+        <span class="detail-row__value detail-row__value--mono">${UI.formatDateTime(pass.return_time)}</span>
+      </div>` : ""}
+    `;
+  }
+
+  function showActions(pass) {
+    const actionsDiv = document.getElementById("verify-actions");
+    const btnExited   = document.getElementById("btn-exited");
+    const btnReturned = document.getElementById("btn-returned");
+
+    // Only show actions for approved passes
+    if (pass.approval_status !== "APPROVED") {
+      UI.hide(actionsDiv);
+      return;
+    }
+
+    UI.show(actionsDiv);
+
+    // Show EXITED button only if NOT_EXITED
+    if (pass.movement_status === "NOT_EXITED") {
+      UI.show(btnExited);
+      UI.hide(btnReturned);
+    } else if (pass.movement_status === "EXITED") {
+      UI.hide(btnExited);
+      UI.show(btnReturned);
+    } else {
+      // RETURNED or EXPIRED — no more actions
+      UI.hide(actionsDiv);
+    }
+  }
+
+  async function verifyPass() {
+    const passId = getPassIdFromURL();
+    if (!passId) {
+      setStatus("rejected", "✕", "Invalid QR Code", "No pass ID found in URL");
+      document.getElementById("body-loading").innerHTML = `
+        <div class="alert alert--error">
+          <span class="alert__icon">⚠</span>
+          <span>This QR code is invalid or has been corrupted. Please request a new pass.</span>
+        </div>
+      `;
+      return;
+    }
+
+    const res = await API.verifyPass(passId);
+
+    if (!res.success) {
+      setStatus("rejected", "✕", "Not Found", "This pass does not exist");
+      document.getElementById("body-loading").innerHTML = `
+        <div class="alert alert--error">
+          <span class="alert__icon">⚠</span>
+          <span>${res.error || "Pass not found in the system."}</span>
+        </div>
+      `;
+      return;
+    }
+
+    currentPass = res.pass;
+    renderDetails(res.pass);
+
+    // Set status based on approval + movement
+    const ap = res.pass.approval_status;
+    const mv = res.pass.movement_status;
+
+    if (ap === "REJECTED") {
+      setStatus("rejected", "✕", "ACCESS DENIED", "This pass has been rejected");
+    } else if (ap === "PENDING") {
+      setStatus("loading", "⏳", "PENDING APPROVAL", "This pass has not been approved yet");
+    } else if (mv === "EXPIRED") {
+      setStatus("expired", "🕐", "PASS EXPIRED", "The allowed exit time has passed");
+    } else if (mv === "RETURNED") {
+      setStatus("returned", "✅", "RETURNED", "Employee has returned");
+    } else if (mv === "EXITED") {
+      setStatus("exited", "🚶", "EXITED", "Employee has exited — awaiting return");
+    } else if (ap === "APPROVED" && mv === "NOT_EXITED") {
+      const tr = UI.timeRemaining(res.pass.exit_to);
+      if (tr.expired) {
+        setStatus("expired", "🕐", "PASS EXPIRED", "Window has passed — guard should flag");
+      } else {
+        setStatus("approved", "✅", "APPROVED", `Valid · ${tr.text}`);
+      }
+    }
+
+    showActions(res.pass);
+  }
+
+  async function markMovement(movement) {
+    const guardName = document.getElementById("guard-name").value.trim();
+    if (!guardName) {
+      UI.toast("Please enter your name or guard ID first.", "warning");
+      document.getElementById("guard-name").focus();
+      return;
+    }
+
+    const action = movement === "EXITED" ? "Mark as Exited" : "Mark as Returned";
+    const confirmed = await UI.confirm(action, `Confirm ${movement.toLowerCase()} for pass <strong>${currentPass.pass_id}</strong>?`);
+    if (!confirmed) return;
+
+    const btn = movement === "EXITED"
+      ? document.getElementById("btn-exited")
+      : document.getElementById("btn-returned");
+    UI.setButtonLoading(btn, true);
+
+    const res = await API.updateMovementStatus({
+      pass_id:    currentPass.pass_id,
+      movement,
+      guard_name: guardName,
+    });
+    UI.setButtonLoading(btn, false);
+
+    if (res.success) {
+      UI.toast(`Pass marked as ${movement}.`, "success");
+      // Reload to show updated state
+      setTimeout(() => verifyPass(), 800);
+    } else {
+      UI.toast(res.error || "Failed to update. Try again.", "error");
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────
+  verifyPass();
+</script>
+</body>
+</html>

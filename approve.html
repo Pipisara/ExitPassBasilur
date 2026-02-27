@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Approver Dashboard — ExitPass</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px;
+      width: fit-content;
+      margin-bottom: 24px;
+    }
+
+    .tab-btn {
+      padding: 8px 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      background: var(--amber);
+      color: #000;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .approve-actions-cell { display: flex; gap: 6px; }
+
+    .pending-count {
+      background: var(--red);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-bar input,
+    .filter-bar select {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--text-primary);
+      outline: none;
+    }
+
+    .filter-bar input:focus,
+    .filter-bar select:focus {
+      border-color: var(--amber-dim);
+    }
+
+    .filter-bar select option { background: var(--bg-panel); }
+  </style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<nav class="topbar">
+  <a href="index.html" class="topbar__logo">
+    <div class="topbar__logo-icon">🔐</div>
+    <span class="topbar__logo-text">Exit<span>Pass</span></span>
+  </a>
+  <div class="topbar__right">
+    <div class="topbar__user">
+      <span id="user-name">Loading…</span>
+      <span id="user-dept" style="color:var(--text-muted);font-size:12px;"></span>
+      <span id="user-role" class="topbar__role-badge role--approver">APPROVER</span>
+    </div>
+    <button class="btn btn--ghost btn--sm" id="logout-btn">Sign Out</button>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div class="page-header__eyebrow">Approver Dashboard</div>
+      <h1 class="page-header__title">Pass Management</h1>
+      <p class="page-header__sub">Review and approve employee exit requests</p>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card stat-card--amber">
+        <div class="stat-card__label">Pending</div>
+        <div class="stat-card__value" id="stat-pending">—</div>
+        <div class="stat-card__icon">⏳</div>
+      </div>
+      <div class="stat-card stat-card--green">
+        <div class="stat-card__label">Approved Today</div>
+        <div class="stat-card__value" id="stat-approved">—</div>
+        <div class="stat-card__icon">✅</div>
+      </div>
+      <div class="stat-card stat-card--red">
+        <div class="stat-card__label">Rejected Today</div>
+        <div class="stat-card__value" id="stat-rejected">—</div>
+        <div class="stat-card__icon">✕</div>
+      </div>
+      <div class="stat-card stat-card--blue">
+        <div class="stat-card__label">Currently Out</div>
+        <div class="stat-card__value" id="stat-out">—</div>
+        <div class="stat-card__icon">🚶</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="pending">
+        Pending <span class="pending-count" id="pending-badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="history">All Passes</button>
+    </div>
+
+    <!-- PENDING TAB -->
+    <div class="tab-panel active" id="tab-pending">
+      <div class="card">
+        <div class="card__header">
+          <h2 class="card__title">Pending Approvals</h2>
+          <button class="btn btn--ghost btn--sm" onclick="loadPending()">↺ Refresh</button>
+        </div>
+
+        <div id="pending-loading" class="loading-overlay">
+          <div class="spinner"></div> Loading pending passes…
+        </div>
+
+        <div id="pending-empty" class="empty-state hidden">
+          <div class="empty-state__icon">✅</div>
+          <div class="empty-state__title">All clear!</div>
+          <p>No passes waiting for your review.</p>
+        </div>
+
+        <div class="table-wrap hidden" id="pending-table-wrap">
+          <table id="pending-table">
+            <thead>
+              <tr>
+                <th>Pass ID</th>
+                <th>Employee</th>
+                <th>Department</th>
+                <th>Reason</th>
+                <th>Exit From</th>
+                <th>Return By</th>
+                <th>Requested</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="pending-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORY TAB -->
+    <div class="tab-panel" id="tab-history">
+      <div class="card">
+        <div class="card__header">
+          <h2 class="card__title">All Passes</h2>
+          <button class="btn btn--ghost btn--sm" onclick="loadHistory()">↺ Refresh</button>
+        </div>
+
+        <div class="filter-bar">
+          <input type="text" id="search-input" placeholder="Search by name, ID, reason…" style="flex:1;min-width:200px;" />
+          <select id="status-filter">
+            <option value="">All Statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </div>
+
+        <div id="history-loading" class="loading-overlay hidden">
+          <div class="spinner"></div> Loading history…
+        </div>
+
+        <div id="history-empty" class="empty-state hidden">
+          <div class="empty-state__icon">📋</div>
+          <div class="empty-state__title">No passes found</div>
+          <p>No matching records.</p>
+        </div>
+
+        <div class="table-wrap hidden" id="history-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Pass ID</th>
+                <th>Employee</th>
+                <th>Department</th>
+                <th>Reason</th>
+                <th>Exit From</th>
+                <th>Return By</th>
+                <th>Approval</th>
+                <th>Movement</th>
+                <th>Approved By</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script>
+  // ── Auth Guard ─────────────────────────────────────────────────
+  const session = Auth.requireAuth(["approver", "admin"]);
+  if (session) {
+    UI.renderTopbarUser(session);
+    UI.bindLogout();
+  }
+
+  // ── Tabs ───────────────────────────────────────────────────────
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      this.classList.add("active");
+      document.getElementById("tab-" + this.dataset.tab).classList.add("active");
+      if (this.dataset.tab === "history" && !historyLoaded) loadHistory();
+    });
+  });
+  let historyLoaded = false;
+
+  // ── Load Stats ────────────────────────────────────────────────
+  async function loadStats() {
+    const res = await API.getStats();
+    if (res.success) {
+      document.getElementById("stat-pending").textContent  = res.pending  ?? "—";
+      document.getElementById("stat-approved").textContent = res.approvedToday ?? "—";
+      document.getElementById("stat-rejected").textContent = res.rejectedToday ?? "—";
+      document.getElementById("stat-out").textContent      = res.currentlyOut  ?? "—";
+    }
+  }
+
+  // ── Load Pending ──────────────────────────────────────────────
+  async function loadPending() {
+    const loading = document.getElementById("pending-loading");
+    const empty   = document.getElementById("pending-empty");
+    const wrap    = document.getElementById("pending-table-wrap");
+    const tbody   = document.getElementById("pending-tbody");
+
+    UI.show(loading);
+    UI.hide(empty);
+    UI.hide(wrap);
+
+    const res = await API.getPendingPasses();
+    UI.hide(loading);
+
+    const passes = res.passes || [];
+    document.getElementById("pending-badge").textContent = passes.length;
+
+    if (!res.success || passes.length === 0) {
+      UI.show(empty);
+      return;
+    }
+
+    tbody.innerHTML = passes.map(p => `
+      <tr>
+        <td><span class="td-mono">${p.pass_id}</span></td>
+        <td><span class="td-primary">${p.employee_name || "—"}</span></td>
+        <td class="text-secondary">${p.department || "—"}</td>
+        <td>${p.reason}</td>
+        <td class="text-secondary">${UI.formatDateTime(p.exit_from)}</td>
+        <td class="text-secondary">${UI.formatDateTime(p.exit_to)}</td>
+        <td class="text-secondary">${UI.formatDateTime(p.request_time)}</td>
+        <td>
+          <div class="approve-actions-cell">
+            <button class="btn btn--success btn--sm" onclick="handleApprove('${p.pass_id}', 'APPROVED')">✓ Approve</button>
+            <button class="btn btn--danger btn--sm"  onclick="handleApprove('${p.pass_id}', 'REJECTED')">✕ Reject</button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+    UI.show(wrap);
+  }
+
+  // ── Approve / Reject ──────────────────────────────────────────
+  async function handleApprove(passId, status) {
+    const action = status === "APPROVED" ? "approve" : "reject";
+    const confirmed = await UI.confirm(
+      `${status === "APPROVED" ? "Approve" : "Reject"} Pass`,
+      `Are you sure you want to ${action} pass <strong>${passId}</strong>?`
+    );
+    if (!confirmed) return;
+
+    const row = document.querySelector(`[onclick*="${passId}"]`)?.closest("tr");
+    if (row) row.style.opacity = "0.4";
+
+    const res = await API.approvePass({
+      pass_id:      passId,
+      status,
+      approver_name: session.name,
+    });
+
+    if (res.success) {
+      UI.toast(`Pass ${passId} ${status.toLowerCase()}!`, status === "APPROVED" ? "success" : "warning");
+      loadPending();
+      loadStats();
+    } else {
+      UI.toast(res.error || "Action failed. Please retry.", "error");
+      if (row) row.style.opacity = "1";
+    }
+  }
+
+  // ── Load History ──────────────────────────────────────────────
+  async function loadHistory() {
+    historyLoaded = true;
+    const loading = document.getElementById("history-loading");
+    const empty   = document.getElementById("history-empty");
+    const wrap    = document.getElementById("history-table-wrap");
+    const tbody   = document.getElementById("history-tbody");
+
+    UI.show(loading);
+    UI.hide(empty);
+    UI.hide(wrap);
+
+    const res = await API.getAllPasses(100);
+    UI.hide(loading);
+
+    allPasses = res.passes || [];
+    renderHistory(allPasses);
+  }
+
+  let allPasses = [];
+
+  function renderHistory(passes) {
+    const empty = document.getElementById("history-empty");
+    const wrap  = document.getElementById("history-table-wrap");
+    const tbody = document.getElementById("history-tbody");
+
+    if (!passes || passes.length === 0) {
+      UI.show(empty);
+      UI.hide(wrap);
+      return;
+    }
+
+    tbody.innerHTML = passes.map(p => `
+      <tr>
+        <td><span class="td-mono">${p.pass_id}</span></td>
+        <td><span class="td-primary">${p.employee_name || "—"}</span></td>
+        <td class="text-secondary">${p.department || "—"}</td>
+        <td>${p.reason}</td>
+        <td class="text-secondary">${UI.formatDateTime(p.exit_from)}</td>
+        <td class="text-secondary">${UI.formatDateTime(p.exit_to)}</td>
+        <td>${UI.statusBadge(p.approval_status)}</td>
+        <td>${UI.statusBadge(p.movement_status)}</td>
+        <td class="text-secondary">${p.approved_by || "—"}</td>
+      </tr>
+    `).join("");
+    UI.hide(empty);
+    UI.show(wrap);
+  }
+
+  // ── Search & Filter ───────────────────────────────────────────
+  function applyFilters() {
+    const q      = document.getElementById("search-input").value.toLowerCase();
+    const status = document.getElementById("status-filter").value;
+    const filtered = allPasses.filter(p => {
+      const matchQ = !q ||
+        p.pass_id?.toLowerCase().includes(q) ||
+        p.reason?.toLowerCase().includes(q) ||
+        p.employee_name?.toLowerCase().includes(q);
+      const matchS = !status || p.approval_status === status;
+      return matchQ && matchS;
+    });
+    renderHistory(filtered);
+  }
+
+  document.getElementById("search-input").addEventListener("input", applyFilters);
+  document.getElementById("status-filter").addEventListener("change", applyFilters);
+
+  // ── Init ──────────────────────────────────────────────────────
+  if (session) {
+    loadStats();
+    loadPending();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guard Scanner — ExitPass</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- jsQR for real QR scanning -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+  <style>
+    .guard-layout {
+      display: grid;
+      grid-template-columns: 480px 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .guard-layout { grid-template-columns: 1fr; }
+    }
+
+    .scan-section {
+      position: relative;
+    }
+
+    .scanner-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .scanner-status--active  { background: var(--green-glow);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+    .scanner-status--idle    { background: var(--amber-glow);  color: var(--amber); border: 1px solid rgba(245,166,35,0.2); }
+    .scanner-status--error   { background: var(--red-glow);    color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+
+    .scan-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: blink 1s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.2; }
+    }
+
+    .manual-or {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 16px 0;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .manual-or::before, .manual-or::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .recent-log {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    .log-entry {
+      padding: 12px 14px;
+      background: var(--bg-panel);
+      border-radius: var(--radius);
+      border-left: 3px solid;
+      font-size: 12px;
+    }
+
+    .log-entry--exited  { border-color: var(--blue); }
+    .log-entry--returned { border-color: var(--green); }
+
+    .log-entry__id {
+      font-family: var(--font-mono);
+      color: var(--amber);
+      margin-bottom: 4px;
+    }
+
+    .log-entry__name {
+      color: var(--text-primary);
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+
+    .log-entry__meta {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    canvas { display: none; }
+
+    .camera-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<nav class="topbar">
+  <a href="index.html" class="topbar__logo">
+    <div class="topbar__logo-icon">🔐</div>
+    <span class="topbar__logo-text">Exit<span>Pass</span></span>
+  </a>
+  <div class="topbar__right">
+    <div class="topbar__user">
+      <span id="user-name">Loading…</span>
+      <span id="user-role" class="topbar__role-badge role--guard">GUARD</span>
+    </div>
+    <button class="btn btn--ghost btn--sm" id="logout-btn">Sign Out</button>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div class="page-header__eyebrow">Security Guard Portal</div>
+      <h1 class="page-header__title">QR Scanner</h1>
+      <p class="page-header__sub">Scan exit pass QR codes or enter manually</p>
+    </div>
+
+    <div class="guard-layout">
+      <!-- LEFT: Scanner -->
+      <div class="scan-section">
+        <div class="card">
+          <div class="card__header">
+            <h2 class="card__title">Scanner</h2>
+            <div id="scanner-status" class="scanner-status scanner-status--idle" style="margin:0;padding:6px 10px;">
+              <span class="scan-dot"></span> IDLE
+            </div>
+          </div>
+
+          <!-- Camera controls -->
+          <div class="camera-toggle">
+            <button class="btn btn--primary btn--sm" id="start-btn" onclick="startCamera()">▶ Start Camera</button>
+            <button class="btn btn--ghost btn--sm hidden" id="stop-btn" onclick="stopCamera()">⏹ Stop</button>
+          </div>
+
+          <!-- Video preview -->
+          <div class="scanner-video-wrap" id="video-wrap" style="display:none;">
+            <video id="scanner-video" autoplay muted playsinline></video>
+            <div class="scanner-crosshair"></div>
+          </div>
+          <canvas id="scanner-canvas"></canvas>
+
+          <div class="manual-or">OR ENTER MANUALLY</div>
+
+          <div style="display:flex;gap:8px;">
+            <input
+              type="text"
+              id="manual-pass-id"
+              class="form-input"
+              placeholder="EP-123456"
+              style="flex:1;font-family:var(--font-mono);letter-spacing:0.05em;"
+            />
+            <button class="btn btn--primary" onclick="verifyManual()">Verify</button>
+          </div>
+
+          <p style="font-size:11px;color:var(--text-muted);margin-top:10px;font-family:var(--font-mono);">
+            SCANNING REDIRECTS TO VERIFY PAGE FOR ACTION
+          </p>
+        </div>
+
+        <!-- Guard ID Card -->
+        <div class="card" style="margin-top:20px;">
+          <div class="card__header">
+            <h2 class="card__title">Your Guard ID</h2>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Save your ID (used for all actions)</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="saved-guard-name" class="form-input" placeholder="Enter your name or guard ID…" />
+              <button class="btn btn--ghost" onclick="saveGuardName()">Save</button>
+            </div>
+            <div class="form-hint">This will pre-fill the guard name on the verify page.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Recent Log -->
+      <div>
+        <div class="card">
+          <div class="card__header">
+            <h2 class="card__title">Recent Movements</h2>
+            <button class="btn btn--ghost btn--sm" onclick="loadLog()">↺ Refresh</button>
+          </div>
+
+          <div id="log-loading" class="loading-overlay">
+            <div class="spinner"></div> Loading log…
+          </div>
+
+          <div id="log-empty" class="empty-state hidden">
+            <div class="empty-state__icon">📋</div>
+            <div class="empty-state__title">No movements yet</div>
+            <p>Movement records will appear here.</p>
+          </div>
+
+          <div class="recent-log hidden" id="log-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script>
+  // ── Auth Guard ─────────────────────────────────────────────────
+  const session = Auth.requireAuth(["guard", "admin"]);
+  if (session) {
+    UI.renderTopbarUser(session);
+    UI.bindLogout();
+  }
+
+  // ── Restore saved guard name ───────────────────────────────────
+  const savedName = localStorage.getItem("ep_guard_name");
+  if (savedName) document.getElementById("saved-guard-name").value = savedName;
+
+  function saveGuardName() {
+    const name = document.getElementById("saved-guard-name").value.trim();
+    if (!name) { UI.toast("Please enter a name.", "warning"); return; }
+    localStorage.setItem("ep_guard_name", name);
+    UI.toast("Guard name saved!", "success");
+  }
+
+  // ── Camera QR Scanning ────────────────────────────────────────
+  let videoStream = null;
+  let scanInterval = null;
+  let lastScanned = null;
+  let lastScannedTime = 0;
+
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      videoStream = stream;
+      const video = document.getElementById("scanner-video");
+      video.srcObject = stream;
+
+      document.getElementById("video-wrap").style.display = "block";
+      UI.show(document.getElementById("stop-btn"));
+      UI.hide(document.getElementById("start-btn"));
+      setStatus("active", "SCANNING");
+
+      // Start scan loop
+      scanInterval = setInterval(scanFrame, 300);
+    } catch (err) {
+      UI.toast("Camera access denied. Check browser permissions.", "error");
+      setStatus("error", "NO CAMERA");
+    }
+  }
+
+  function stopCamera() {
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => t.stop());
+      videoStream = null;
+    }
+    if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+    document.getElementById("video-wrap").style.display = "none";
+    UI.hide(document.getElementById("stop-btn"));
+    UI.show(document.getElementById("start-btn"));
+    setStatus("idle", "IDLE");
+  }
+
+  function scanFrame() {
+    const video  = document.getElementById("scanner-video");
+    const canvas = document.getElementById("scanner-canvas");
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+    if (code) {
+      const now = Date.now();
+      // Debounce — same code, within 3s → ignore
+      if (code.data === lastScanned && (now - lastScannedTime) < 3000) return;
+      lastScanned     = code.data;
+      lastScannedTime = now;
+
+      handleScanResult(code.data);
+    }
+  }
+
+  function handleScanResult(data) {
+    // data should be a URL like: https://…/verify.html?id=EP-XXXXXX
+    UI.toast("QR code detected! Redirecting…", "success");
+    stopCamera();
+    try {
+      const url  = new URL(data);
+      const id   = url.searchParams.get("id");
+      if (id) {
+        setTimeout(() => {
+          window.location.href = `verify.html?id=${encodeURIComponent(id)}`;
+        }, 600);
+      } else {
+        UI.toast("QR code does not contain a valid pass ID.", "error");
+      }
+    } catch {
+      // If not a URL, treat as raw pass ID
+      const id = data.trim();
+      if (id.startsWith("EP-") || id.startsWith(APP_CONFIG.PASS_PREFIX + "-")) {
+        setTimeout(() => {
+          window.location.href = `verify.html?id=${encodeURIComponent(id)}`;
+        }, 600);
+      } else {
+        UI.toast("Unrecognized QR code format.", "error");
+      }
+    }
+  }
+
+  // ── Manual Verify ─────────────────────────────────────────────
+  function verifyManual() {
+    const id = document.getElementById("manual-pass-id").value.trim().toUpperCase();
+    if (!id) { UI.toast("Enter a pass ID.", "warning"); return; }
+    window.location.href = `verify.html?id=${encodeURIComponent(id)}`;
+  }
+
+  document.getElementById("manual-pass-id").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") verifyManual();
+  });
+
+  // ── Status indicator ──────────────────────────────────────────
+  function setStatus(type, text) {
+    const el = document.getElementById("scanner-status");
+    el.className = `scanner-status scanner-status--${type}`;
+    el.innerHTML = `<span class="scan-dot"></span> ${text}`;
+  }
+
+  // ── Load Recent Log ───────────────────────────────────────────
+  async function loadLog() {
+    const loading = document.getElementById("log-loading");
+    const empty   = document.getElementById("log-empty");
+    const list    = document.getElementById("log-list");
+
+    UI.show(loading);
+    UI.hide(empty);
+    UI.hide(list);
+
+    const res = await API.getGuardLog(30);
+    UI.hide(loading);
+
+    const entries = res.entries || [];
+    if (!res.success || entries.length === 0) {
+      UI.show(empty);
+      return;
+    }
+
+    list.innerHTML = entries.map(e => `
+      <div class="log-entry log-entry--${e.movement_status?.toLowerCase() || 'exited'}">
+        <div class="log-entry__id">${e.pass_id}</div>
+        <div class="log-entry__name">${e.employee_name || "—"}</div>
+        <div class="log-entry__meta">
+          ${e.movement_status} · ${UI.formatDateTime(e.exit_time || e.return_time)}
+          ${e.guard_name ? ` · Guard: ${e.guard_name}` : ""}
+        </div>
+      </div>
+    `).join("");
+    UI.show(list);
+  }
+
+  // ── Init ──────────────────────────────────────────────────────
+  if (session) loadLog();
+</script>
+</body>
+</html>

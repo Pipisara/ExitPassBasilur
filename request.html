@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Passes — ExitPass</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- QR Code Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    .split-layout {
+      display: grid;
+      grid-template-columns: 400px 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .split-layout { grid-template-columns: 1fr; }
+    }
+
+    .time-remaining {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 3px;
+    }
+    .time-ok      { background: var(--green-glow);  color: var(--green); }
+    .time-expired { background: rgba(120,120,120,0.15); color: #888; }
+
+    .passes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .pass-card__actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    /* Animated new pass indicator */
+    @keyframes new-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245,166,35,0); }
+      50%       { box-shadow: 0 0 0 8px rgba(245,166,35,0); }
+    }
+  </style>
+</head>
+<body>
+<!-- TOPBAR -->
+<nav class="topbar">
+  <a href="index.html" class="topbar__logo">
+    <div class="topbar__logo-icon">🔐</div>
+    <span class="topbar__logo-text">Exit<span>Pass</span></span>
+  </a>
+  <div class="topbar__right">
+    <div class="topbar__user">
+      <span id="user-name">Loading…</span>
+      <span id="user-dept" style="color:var(--text-muted);font-size:12px;"></span>
+      <span id="user-role" class="topbar__role-badge role--employee">EMPLOYEE</span>
+    </div>
+    <button class="btn btn--ghost btn--sm" id="logout-btn">Sign Out</button>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="container">
+    <!-- Page Header -->
+    <div class="page-header">
+      <div class="page-header__eyebrow">Employee Portal</div>
+      <h1 class="page-header__title">My Exit Passes</h1>
+      <p class="page-header__sub">Request and track your exit permissions</p>
+    </div>
+
+    <div class="split-layout">
+      <!-- LEFT: Request Form -->
+      <div>
+        <div class="card card--amber-glow">
+          <div class="card__header">
+            <h2 class="card__title">New Exit Request</h2>
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">FORM</span>
+          </div>
+
+          <form id="request-form">
+            <div class="form-group">
+              <label class="form-label" for="reason">Reason for Exit</label>
+              <select class="form-select" id="reason" required>
+                <option value="">— Select reason —</option>
+                <option value="Personal Work">Personal Work</option>
+                <option value="Medical Appointment">Medical Appointment</option>
+                <option value="Bank / Government Office">Bank / Government Office</option>
+                <option value="Official Duty">Official Duty</option>
+                <option value="Emergency">Emergency</option>
+                <option value="Site Visit">Site Visit</option>
+                <option value="Delivery / Collection">Delivery / Collection</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+
+            <div id="other-reason-group" class="form-group hidden">
+              <label class="form-label" for="other-reason">Specify Reason</label>
+              <input type="text" id="other-reason" class="form-input" placeholder="Describe your reason…" />
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label class="form-label" for="exit-from">Exit From</label>
+                <input type="datetime-local" id="exit-from" class="form-input" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="exit-to">Return By</label>
+                <input type="datetime-local" id="exit-to" class="form-input" required />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="remarks">Additional Remarks</label>
+              <textarea id="remarks" class="form-textarea" placeholder="Optional additional information…" style="min-height:80px;"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn--primary btn--full" id="submit-btn">
+              Submit Request
+            </button>
+          </form>
+        </div>
+
+        <!-- QR Modal (shown after approval) -->
+        <div id="qr-section" class="card hidden" style="margin-top:20px;text-align:center;">
+          <div class="card__header" style="justify-content:center;">
+            <h3 class="card__title">Your Pass QR Code</h3>
+          </div>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">
+            Show this QR code to the security guard at the gate.
+          </p>
+          <div class="qr-wrap">
+            <div class="qr-frame">
+              <div id="qr-display"></div>
+            </div>
+            <div class="qr-label" id="qr-pass-id">EP-XXXXXX</div>
+          </div>
+          <div style="margin-top:16px;">
+            <button class="btn btn--ghost btn--sm" onclick="document.getElementById('qr-section').classList.add('hidden')">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Pass History -->
+      <div>
+        <div class="card">
+          <div class="card__header">
+            <h2 class="card__title">Pass History</h2>
+            <button class="btn btn--ghost btn--sm" id="refresh-btn" onclick="loadMyPasses()">↺ Refresh</button>
+          </div>
+
+          <div id="passes-loading" class="loading-overlay">
+            <div class="spinner"></div> Loading your passes…
+          </div>
+
+          <div id="passes-empty" class="empty-state hidden">
+            <div class="empty-state__icon">📋</div>
+            <div class="empty-state__title">No passes yet</div>
+            <p>Submit your first exit request using the form.</p>
+          </div>
+
+          <div id="passes-list" class="passes-list hidden"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- QR Detail Modal -->
+<div id="qr-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal__header">
+      <h3 class="card__title">Exit Pass QR</h3>
+      <button class="btn btn--ghost btn--sm btn--icon" onclick="UI.hide(document.getElementById('qr-modal'))">✕</button>
+    </div>
+    <div class="modal__body" style="text-align:center;">
+      <div class="qr-wrap">
+        <div class="qr-frame">
+          <div id="modal-qr-display"></div>
+        </div>
+        <div class="qr-label" id="modal-qr-id">EP-XXXXXX</div>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:16px;">
+        Show this to the security guard at the exit gate.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script>
+  // ── Auth Guard ─────────────────────────────────────────────────
+  const session = Auth.requireAuth(["employee", "admin"]);
+  if (session) {
+    UI.renderTopbarUser(session);
+    UI.bindLogout();
+  }
+
+  // ── Set min datetime to now ────────────────────────────────────
+  function setMinDatetime() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    const iso = now.toISOString().slice(0, 16);
+    document.getElementById("exit-from").min = iso;
+    document.getElementById("exit-to").min   = iso;
+  }
+  setMinDatetime();
+
+  // ── Show/hide "Other" reason field ────────────────────────────
+  document.getElementById("reason").addEventListener("change", function () {
+    const other = document.getElementById("other-reason-group");
+    this.value === "Other" ? UI.show(other) : UI.hide(other);
+  });
+
+  // ── Exit-from change → update exit-to min ─────────────────────
+  document.getElementById("exit-from").addEventListener("change", function () {
+    document.getElementById("exit-to").min = this.value;
+  });
+
+  // ── Submit Request ────────────────────────────────────────────
+  document.getElementById("request-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("submit-btn");
+    const reasonSelect = document.getElementById("reason").value;
+    const otherReason  = document.getElementById("other-reason").value.trim();
+    const reason = reasonSelect === "Other" ? (otherReason || "Other") : reasonSelect;
+    const exit_from = document.getElementById("exit-from").value;
+    const exit_to   = document.getElementById("exit-to").value;
+
+    if (new Date(exit_to) <= new Date(exit_from)) {
+      UI.toast("Return time must be after exit time.", "error");
+      return;
+    }
+
+    UI.setButtonLoading(btn, true);
+    const res = await API.createExitPass({
+      user_id:   session.user_id,
+      reason,
+      exit_from,
+      exit_to,
+    });
+    UI.setButtonLoading(btn, false);
+
+    if (res.success) {
+      UI.toast("Exit pass submitted successfully!", "success");
+      e.target.reset();
+      document.getElementById("other-reason-group").classList.add("hidden");
+      loadMyPasses();
+    } else {
+      UI.toast(res.error || "Failed to submit. Try again.", "error");
+    }
+  });
+
+  // ── Load My Passes ────────────────────────────────────────────
+  async function loadMyPasses() {
+    const loading = document.getElementById("passes-loading");
+    const empty   = document.getElementById("passes-empty");
+    const list    = document.getElementById("passes-list");
+
+    UI.show(loading);
+    UI.hide(empty);
+    UI.hide(list);
+
+    const res = await API.getMyPasses(session.user_id);
+    UI.hide(loading);
+
+    if (!res.success || !res.passes || res.passes.length === 0) {
+      UI.show(empty);
+      return;
+    }
+
+    list.innerHTML = res.passes.map(pass => {
+      const tr = UI.timeRemaining(pass.exit_to);
+      const timeChip = pass.approval_status === "APPROVED" && pass.movement_status === "NOT_EXITED"
+        ? `<span class="time-remaining ${tr.expired ? 'time-expired' : 'time-ok'}">${tr.text}</span>`
+        : "";
+
+      const canShowQR = pass.approval_status === "APPROVED";
+
+      return `
+        <div class="pass-card slide-up" data-pass-id="${pass.pass_id}">
+          <div class="pass-card__top">
+            <div>
+              <div class="pass-card__id">${pass.pass_id}</div>
+              <div class="pass-card__reason">${pass.reason}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+              ${UI.statusBadge(pass.approval_status)}
+              ${UI.statusBadge(pass.movement_status)}
+            </div>
+          </div>
+          <div class="pass-card__meta">
+            <span>🕐 ${UI.formatDateTime(pass.exit_from)}</span>
+            <span>🕓 ${UI.formatDateTime(pass.exit_to)}</span>
+            ${pass.approved_by ? `<span>✅ ${pass.approved_by}</span>` : ""}
+          </div>
+          <div class="pass-card__actions">
+            ${timeChip}
+            ${canShowQR ? `<button class="btn btn--ghost btn--sm" onclick="showQR('${pass.pass_id}')">📱 View QR</button>` : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    UI.show(list);
+  }
+
+  // ── Show QR Code ──────────────────────────────────────────────
+  function showQR(passId) {
+    const url = `${APP_CONFIG.VERIFY_URL}?id=${passId}`;
+    document.getElementById("modal-qr-id").textContent = passId;
+    document.getElementById("modal-qr-display").innerHTML = "";
+    if (typeof QRCode !== "undefined") {
+      new QRCode(document.getElementById("modal-qr-display"), {
+        text: url, width: 200, height: 200,
+        colorDark: "#000000", colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    }
+    UI.show(document.getElementById("qr-modal"));
+  }
+
+  // Close modal on backdrop click
+  document.getElementById("qr-modal").addEventListener("click", function(e) {
+    if (e.target === this) UI.hide(this);
+  });
+
+  // ── Init ──────────────────────────────────────────────────────
+  if (session) loadMyPasses();
+</script>
+</body>
+</html>
